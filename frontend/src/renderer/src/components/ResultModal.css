@@ -1,0 +1,102 @@
+.result-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.result-card {
+  width: 360px;
+  background: #0f172a;
+  color: #f5f5f5;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.45);
+}
+
+.result-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.close-btn {
+  border: none;
+  background: transparent;
+  color: #f5f5f5;
+  font-size: 1.4rem;
+  cursor: pointer;
+}
+
+.status {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 12px 0 4px;
+}
+
+.status.safe {
+  color: #32d46c;
+}
+
+.status.phishing {
+  color: #ff4d4f;
+}
+
+.risk-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.risk-low {
+  color: #32d46c;
+}
+.risk-medium {
+  color: #ffaa46;
+}
+.risk-high,
+.risk-critical {
+  color: #ff4d4f;
+}
+
+.reason {
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.details {
+  margin-top: 16px;
+  text-align: left;
+}
+
+.details ul {
+  padding-left: 20px;
+}
+
+.result-error {
+  color: #ff4d4f;
+  margin-bottom: 16px;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.actions button,
+.result-error button {
+  flex: 1;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: none;
+  background: #209cee;
+  color: #fff;
+  cursor: pointer;
+}
+

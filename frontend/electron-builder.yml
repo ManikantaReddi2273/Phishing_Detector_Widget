@@ -1,0 +1,18 @@
+appId: com.phishing.detector.widget
+productName: PhishingDetectorWidget
+files:
+  - dist/main/**
+  - dist/renderer/**
+  - package.json
+directories:
+  buildResources: build
+asar: true
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+

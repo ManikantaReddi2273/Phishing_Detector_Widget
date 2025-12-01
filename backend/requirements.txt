@@ -1,0 +1,40 @@
+# FastAPI and server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Pydantic for data validation
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# HTTP client for AI API calls
+httpx==0.25.2
+
+# Image processing
+Pillow>=10.2.0
+
+# Screen text extraction (Phase 2 - Primary method)
+pywin32>=306
+comtypes>=1.4.0
+
+# Screenshot capture (Phase 2 - Fallback only)
+mss==9.0.1
+
+# OCR (will be used in Phase 3)
+easyocr==1.7.0
+pytesseract==0.3.10
+
+# AI/LLM SDK (will be used in Phase 4)
+openai==1.3.7
+
+# Environment variables
+python-dotenv==1.0.0
+
+# Logging
+colorlog==6.8.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2  # For testing async endpoints
+
