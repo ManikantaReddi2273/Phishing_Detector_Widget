@@ -31,40 +31,58 @@ from app.services.text_processing import ProcessedText
 def _build_system_prompt() -> str:
     """System prompt describing the task and expected JSON schema."""
     return (
-        "You are a security assistant that detects phishing messages. "
-        "Given some text and optional URLs/emails, you must respond ONLY with "
-        "a strict JSON object matching this schema:\n\n"
+        "You are an expert security analyst specializing in phishing detection. "
+        "Analyze the provided text for phishing indicators and respond ONLY with "
+        "a strict JSON object matching this exact schema:\n\n"
         "{\n"
         '  "is_phishing": true or false,\n'
         '  "risk_level": "low" | "medium" | "high" | "critical",\n'
-        '  "reason": "short explanation",\n'
+        '  "reason": "concise explanation of your assessment",\n'
         '  "suspicious_elements": [\n'
         '    {"type": "url" | "urgency" | "threat" | "credential_request" | "other",\n'
-        '     "value": "string",\n'
+        '     "value": "specific suspicious element found",\n'
         '     "confidence": number between 0 and 1}\n'
         "  ],\n"
         '  "recommended_action": "ignore" | "verify" | "report" | "delete" | "block"\n'
         "}\n\n"
-        "Rules:\n"
-        "- Do NOT include any extra keys.\n"
+        "Detection Guidelines:\n"
+        "- Phishing indicators: urgent language, threats, suspicious URLs, requests for credentials, "
+        "prize scams, account suspension warnings, unusual domains, typosquatting\n"
+        "- Safe indicators: normal communication, legitimate domains, no urgency, no credential requests\n"
+        "- IMPORTANT: Ignore localhost (127.0.0.1, localhost) and development URLs - these are NOT phishing\n"
+        "- Be accurate: Only mark as phishing if there are clear indicators\n"
+        "- Risk levels: critical (obvious scam), high (strong indicators), medium (some concerns), low (minimal risk)\n\n"
+        "Response Rules:\n"
+        "- Do NOT include any extra keys beyond those specified.\n"
         "- Do NOT include comments or explanations outside the JSON.\n"
         "- Keep JSON valid and parseable.\n"
+        "- Be precise and conservative in your assessment.\n"
     )
 
 
 def _build_user_prompt(processed: ProcessedText) -> str:
     """Construct the user prompt given processed text."""
     parts = [
-        "Analyze the following text for phishing risk.",
+        "You are analyzing text content for phishing indicators. Consider:",
+        "- Urgent language and threats",
+        "- Suspicious URLs (especially HTTP, unusual domains, typosquatting)",
+        "- Requests for personal information or credentials",
+        "- Unusual sender addresses or domains",
+        "- Prize/winning scams",
+        "- Account suspension threats",
         "",
-        "TEXT:",
+        "IMPORTANT: Ignore localhost URLs (127.0.0.1, localhost) and development URLs as they are not phishing.",
+        "",
+        "TEXT TO ANALYZE:",
         processed.cleaned or processed.original or "",
     ]
     if processed.urls:
         parts.append("")
-        parts.append("URLs detected:")
+        parts.append("URLs detected in the text:")
         for url in processed.urls:
-            parts.append(f"- {url}")
+            # Filter out localhost URLs from the list shown to AI
+            if not any(safe in url.lower() for safe in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
+                parts.append(f"- {url}")
     if processed.emails:
         parts.append("")
         parts.append("Email addresses detected:")
@@ -95,9 +113,11 @@ def analyze_with_llm(processed: ProcessedText) -> AnalyzeResponse:
     system_prompt = _build_system_prompt()
     user_prompt = _build_user_prompt(processed)
 
+    text_length = len(processed.cleaned or processed.original)
     logger.info(
-        "Calling OpenAI for phishing analysis "
-        f"(model={settings.OPENAI_MODEL}, text_len={len(processed.cleaned or processed.original)})"
+        f"🤖 Calling OpenAI API for phishing analysis "
+        f"(model={settings.OPENAI_MODEL}, text_len={text_length}, "
+        f"urls={len(processed.urls)}, emails={len(processed.emails)})"
     )
 
     try:
@@ -113,6 +133,7 @@ def analyze_with_llm(processed: ProcessedText) -> AnalyzeResponse:
         )
 
         content = completion.choices[0].message.content or "{}"
+        logger.debug(f"OpenAI raw response: {content[:500]}")  # Log first 500 chars
         data: Dict[str, Any] = json.loads(content)
 
         # Map JSON fields to AnalyzeResponse
@@ -120,6 +141,11 @@ def analyze_with_llm(processed: ProcessedText) -> AnalyzeResponse:
         risk_level_str = str(data.get("risk_level", "low")).lower()
         reason = str(data.get("reason", "")).strip() or "No reason provided by model."
         recommended_action_str = str(data.get("recommended_action", "verify")).lower()
+        
+        logger.info(
+            f"✅ OpenAI decision: is_phishing={is_phishing}, "
+            f"risk_level={risk_level_str}, reason={reason[:100]}"
+        )
 
         # Clamp risk level to known enum values
         if risk_level_str not in {"low", "medium", "high", "critical"}:
@@ -148,6 +174,13 @@ def analyze_with_llm(processed: ProcessedText) -> AnalyzeResponse:
         # Simple confidence heuristic: high if phishing, else medium
         confidence = 0.9 if is_phishing else 0.7
 
+        # Filter out localhost URLs from extracted URLs
+        safe_domains = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
+        filtered_urls = [
+            url for url in processed.urls 
+            if not any(safe in url.lower() for safe in safe_domains)
+        ]
+        
         return AnalyzeResponse(
             is_phishing=is_phishing,
             status=PhishingStatus.PHISHING if is_phishing else PhishingStatus.SAFE,
@@ -157,7 +190,7 @@ def analyze_with_llm(processed: ProcessedText) -> AnalyzeResponse:
             suspicious_elements=suspicious_elements,
             recommended_action=RecommendedAction(recommended_action_str),
             extracted_text=processed.cleaned or processed.original,
-            extracted_urls=processed.urls,
+            extracted_urls=filtered_urls,
         )
 
     except Exception as exc:  # pragma: no cover - network / API errors

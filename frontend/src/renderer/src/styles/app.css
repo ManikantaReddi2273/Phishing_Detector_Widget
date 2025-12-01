@@ -20,6 +20,11 @@ html {
   justify-content: center;
   background: transparent;
   user-select: none;
+  pointer-events: none; /* Allow clicks to pass through by default */
+}
+
+.app-root > * {
+  pointer-events: auto; /* Re-enable pointer events for child elements */
 }
 
 .app-root:focus-visible {

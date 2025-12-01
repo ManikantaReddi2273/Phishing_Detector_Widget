@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phishing Detector Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        h2 { color: #666; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .safe { border-left: 4px solid #32d46c; }
+        .phishing { border-left: 4px solid #ff4d4f; }
+        .content {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Phishing Detector Test Page</h1>
+    <p><strong>Instructions:</strong> Click the "Scan" button on your widget to test each section below.</p>
+
+    <div class="test-section safe">
+        <h2>✅ Test 1: Safe Email (Should be SAFE)</h2>
+        <div class="content">
+Subject: Meeting Reminder
+From: john.doe@company.com
+
+Hi team,
+Just a reminder about our meeting tomorrow at 2 PM.
+See you there!
+
+Best regards,
+John
+        </div>
+    </div>
+
+    <div class="test-section phishing">
+        <h2>⚠️ Test 2: Phishing Email - Urgent Account Suspension (Should be PHISHING)</h2>
+        <div class="content">
+URGENT: Your account will be suspended in 24 hours!
+Click here immediately: http://secure-bank-verify.com/login
+Verify your identity now or lose access forever!
+This is your last chance to secure your account.
+        </div>
+    </div>
+
+    <div class="test-section safe">
+        <h2>✅ Test 3: Legitimate Website (Should be SAFE)</h2>
+        <div class="content">
+Welcome to Amazon.com
+Your order #123456789 has been confirmed.
+Track your package: https://amazon.com/orders/123456789
+Thank you for your purchase!
+        </div>
+    </div>
+
+    <div class="test-section phishing">
+        <h2>⚠️ Test 4: Fake Prize Scam (Should be PHISHING)</h2>
+        <div class="content">
+Congratulations! You've won $10,000!
+Claim your prize now: http://prize-winner-claim.net/claim?id=12345
+Act fast - offer expires in 2 hours!
+Click here to claim: http://prize-winner-claim.net/verify
+        </div>
+    </div>
+
+    <div class="test-section phishing">
+        <h2>⚠️ Test 5: Fake PayPal Security Alert (Should be PHISHING)</h2>
+        <div class="content">
+PayPal Security Alert
+Your account has been locked due to suspicious activity.
+Verify your account immediately: http://paypal-security-verify.com/login
+Do not ignore this message or your account will be permanently closed!
+        </div>
+    </div>
+
+    <div class="test-section safe">
+        <h2>✅ Test 6: Normal Bank Notification (Should be SAFE)</h2>
+        <div class="content">
+Dear Customer,
+Your account statement is ready.
+Log in securely at: https://chase.com
+This is a legitimate notification from your bank.
+        </div>
+    </div>
+
+    <div class="test-section phishing">
+        <h2>⚠️ Test 7: Suspicious Domain with Urgency (Should be PHISHING)</h2>
+        <div class="content">
+Microsoft Account Security
+Your account needs immediate verification.
+Click here: http://microsoft-account-verify.xyz/login
+This is urgent! Verify now or lose access!
+        </div>
+    </div>
+
+    <div class="test-section phishing">
+        <h2>⚠️ Test 8: Fake Amazon Order (Should be PHISHING)</h2>
+        <div class="content">
+Amazon Order Confirmation
+Your order #987654321 is ready for delivery.
+Track here: http://amazon-order-track.com?id=987654321
+Click to confirm delivery address.
+        </div>
+    </div>
+
+    <div class="test-section safe">
+        <h2>✅ Test 9: Normal Newsletter (Should be SAFE)</h2>
+        <div class="content">
+Weekly Newsletter
+Check out our latest updates and features.
+Visit: https://github.com
+Stay tuned for more exciting news!
+        </div>
+    </div>
+
+    <div class="test-section phishing">
+        <h2>⚠️ Test 10: Credential Phishing (Should be PHISHING)</h2>
+        <div class="content">
+Your Netflix account has been suspended!
+Verify your payment information: http://netflix-verify-payment.com
+Enter your credit card details to reactivate your account.
+Act now or your subscription will be cancelled!
+        </div>
+    </div>
+
+    <hr style="margin: 40px 0;">
+    <p style="text-align: center; color: #666;">
+        <strong>Tip:</strong> Scroll to different sections and click "Scan" to test each one!
+    </p>
+</body>
+</html>
+

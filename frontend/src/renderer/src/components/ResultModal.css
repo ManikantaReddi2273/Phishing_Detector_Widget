@@ -98,5 +98,24 @@
   background: #209cee;
   color: #fff;
   cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.actions button:hover,
+.result-error button:hover {
+  background: #1a8cd8;
+  transform: translateY(-1px);
+}
+
+.actions button:active,
+.result-error button:active {
+  transform: translateY(0);
+}
+
+.close-btn:hover {
+  opacity: 0.7;
+  transform: scale(1.1);
 }
 
