@@ -26,16 +26,13 @@ class Settings(BaseSettings):
     # OpenAI API Configuration
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"
-    OPENAI_MAX_TOKENS: int = 500
-    OPENAI_TEMPERATURE: float = 0.3
+    OPENAI_MAX_TOKENS: int = 400  # Optimized for faster responses
+    OPENAI_TEMPERATURE: float = 0.5  # Increased for better detection sensitivity
+    OPENAI_TIMEOUT: int = 30  # Timeout in seconds for API calls
+    OPENAI_MAX_INPUT_LENGTH: int = 4000  # Maximum characters to send to OpenAI (truncate if longer)
     
-    # OCR Configuration
-    OCR_ENGINE: str = "easyocr"  # Options: "easyocr", "pytesseract"
-    OCR_LANGUAGES: list[str] = ["en"]  # Language codes for OCR
-    
-    # Screenshot Configuration
-    SCREENSHOT_FORMAT: str = "PNG"
-    SCREENSHOT_QUALITY: int = 95
+    # Continuous scanning configuration
+    SCAN_INTERVAL_SECONDS: int = 5  # How often to rescan the active window
     
     # File Paths
     BASE_DIR: Path = Path(__file__).parent.parent.parent

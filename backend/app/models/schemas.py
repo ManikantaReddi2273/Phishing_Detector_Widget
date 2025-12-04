@@ -125,11 +125,28 @@ class StatusResponse(BaseModel):
                 "status": "operational",
                 "version": "0.1.0",
                 "services": {
-                    "screenshot": "ready",
-                    "ocr": "ready",
-                    "ai_analyzer": "ready"
+                    "screen_text_extractor": "ready",
+                    "ai_analyzer": "ready",
+                    "continuous_scanner": "running"
                 },
                 "timestamp": "2024-01-15T10:30:00Z"
             }
         }
+
+
+class LatestScanResponse(BaseModel):
+    """Response model for the latest continuous scan result."""
+
+    last_scan_at: Optional[str] = Field(
+        None, description="Timestamp of the last scan in ISO-8601 format"
+    )
+    has_result: bool = Field(
+        ..., description="Whether a scan result is currently available"
+    )
+    error: Optional[str] = Field(
+        None, description="Last error encountered during scanning, if any"
+    )
+    result: Optional[AnalyzeResponse] = Field(
+        None, description="Latest phishing analysis result, if available"
+    )
 

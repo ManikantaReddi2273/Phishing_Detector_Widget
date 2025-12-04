@@ -1,24 +1,25 @@
 # Windows Phishing Detector Widget
 
-A Windows desktop application that captures on-screen text and uses AI to detect phishing content. Built with Electron (frontend) and Python FastAPI (backend).
+A Windows desktop application that captures on-screen text and uses AI to detect phishing content.  
+Backend is built with **Python FastAPI**, and the floating desktop UI is built with **Flutter Desktop**.
 
 ## 🚀 Features
 
-- **Floating Widget**: Always-on-top draggable button on your desktop
-- **Screenshot Capture**: Captures visible text from any application
-- **OCR Text Extraction**: Extracts text from screenshots using advanced OCR
-- **AI Phishing Detection**: Uses LLM to analyze text for phishing patterns
-- **Instant Results**: Shows safe/phishing status with detailed analysis
+- **Floating Widget**: Always-on-top draggable overlay on your desktop (Flutter desktop app)
+- **Continuous Screen Scanning**: Backend continuously scans visible text from the active window (no clicks required)
+- **Windows UI Automation Text Extraction**: Extracts text directly via Windows UI Automation (no OCR)
+- **AI Phishing Detection (LLM-only)**: Uses the OpenAI API to analyze text for phishing patterns
+- **Instant Results**: Shows safe/phishing status with risk level and explanation in the overlay
 
 ## 📋 Prerequisites
 
 - **Python 3.10+** installed
-- **Node.js 18+** and npm (for frontend - Phase 5)
+- **Flutter 3+** with Windows desktop support enabled
 - **Windows 10/11**
 
 ## 🛠️ Setup Instructions
 
-### Backend Setup (Phases 1-4 Complete)
+### Backend Setup
 
 1. **Navigate to backend directory**
    ```bash
@@ -59,34 +60,29 @@ A Windows desktop application that captures on-screen text and uses AI to detect
    ```
 
    The API will be available at:
-   - API: http://127.0.0.1:8000
+   - API base: http://127.0.0.1:8000
    - Docs: http://127.0.0.1:8000/docs
    - Health: http://127.0.0.1:8000/api/health
 
-### Frontend Setup (Phase 5 - Electron + React)
+### Flutter Desktop Frontend (Floating Overlay)
 
-1. **Install dependencies**
+1. **Navigate to the Flutter frontend**
    ```bash
-   cd frontend
-   npm install
+   cd frontend_flutter
    ```
 
-2. **Run in development mode**
+2. **Get dependencies**
    ```bash
-   npm run dev
+   flutter pub get
    ```
-   This starts Vite (renderer) and Electron (floating widget) concurrently.  
-   Ensure the backend server is already running on `http://127.0.0.1:8000`.
 
-3. **Environment variables (optional)**
-   - Create `frontend/.env` and set `VITE_BACKEND_URL=http://127.0.0.1:8000/api`
-     if you need to override the backend endpoint.
-
-4. **Build for production**
+3. **Run the floating widget (Windows desktop)**
    ```bash
-   npm run build
+   flutter run -d windows
    ```
-   Bundles the renderer with Vite and compiles the Electron main process to `dist/`.
+
+   Make sure the backend server is already running on `http://127.0.0.1:8000`.  
+   The Flutter window will appear as a small, always-on-top, draggable overlay in the top-right corner.
 
 ### Running Tests
 
@@ -104,17 +100,17 @@ pytest -v
 
 ```
 phishing-detector-widget/
-├── backend/                 # Python FastAPI backend
+├── backend/                   # Python FastAPI backend
 │   ├── app/
-│   │   ├── api/            # API routes
-│   │   ├── core/           # Configuration and logging
-│   │   ├── models/         # Pydantic schemas
-│   │   └── services/       # Business logic (Phase 2-4)
-│   ├── tests/              # Test suite
-│   ├── main.py             # Application entry point
-│   └── requirements.txt    # Python dependencies
-├── frontend/               # Electron + React (Phase 5)
-└── docs/                   # Documentation
+│   │   ├── api/              # API routes
+│   │   ├── core/             # Configuration and logging
+│   │   ├── models/           # Pydantic schemas
+│   │   └── services/         # Business logic (text extraction, LLM analysis, scanner)
+│   ├── tests/                # Test suite
+│   ├── main.py               # Application entry point
+│   └── requirements.txt      # Python dependencies
+├── frontend_flutter/          # Flutter desktop floating widget (Windows)
+└── docs/                      # Documentation
 ```
 
 ## 🔌 API Endpoints
@@ -137,7 +133,7 @@ POST /api/analyze
 ```
 Analyzes text for phishing content.
 
-### Scan Entire Screen
+### Scan Entire Screen (on demand)
 ```
 POST /api/scan-screen
 ```
@@ -166,40 +162,35 @@ Captures all visible on-screen text via Windows UI Automation and analyzes it in
 }
 ```
 
-## 📊 Development Status
+### Latest Scan (continuous background scanner)
 
-### ✅ Phase 1: Project Setup & Backend Foundation (Current)
-- [x] Project structure created
-- [x] FastAPI backend setup
-- [x] API endpoints implemented
-- [x] Pydantic models defined
-- [x] Testing infrastructure
-- [x] Logging configuration
+```
+GET /api/latest-scan
+```
 
-### ✅ Phase 2: Screen Text Extraction
-- [x] Windows UI Automation extractor
-- [x] Safe fallback scaffolding
-- [x] Unit tests
+Returns the most recent phishing analysis result produced by the continuous
+background scanner. Intended to be polled by the Flutter floating widget.
 
-### ✅ Phase 3: OCR Fallback & Text Processing
-- [x] OCR fallback service (easyocr / pytesseract)
-- [x] Text cleaning and URL/email extraction
-- [x] Unit tests
+Example response (phishing detected):
 
-### ✅ Phase 4: AI Phishing Detection
-- [x] AI analyzer service
-- [x] OpenAI integration with JSON schema
-- [x] Response parsing + rule-based fallback
-
-### 🔄 Phase 5: Frontend (Electron)
-- [x] Electron setup with Vite + React
-- [x] Floating widget UI
-- [x] Backend communication stub
-
-### 🔄 Phase 7: Integration & Testing
-- [x] New `/api/scan-screen` endpoint (screen text → AI → result)
-- [x] Frontend wired to real backend workflow
-- [ ] Performance tuning & cross-app manual testing
+```json
+{
+  "last_scan_at": "2024-01-15T10:30:00Z",
+  "has_result": true,
+  "error": null,
+  "result": {
+    "is_phishing": true,
+    "status": "phishing",
+    "risk_level": "high",
+    "confidence": 0.95,
+    "reason": "Suspicious URL detected...",
+    "suspicious_elements": [],
+    "recommended_action": "ignore",
+    "extracted_text": "...",
+    "extracted_urls": ["http://fakebank.com"]
+  }
+}
+```
 
 ## 🧪 Testing
 
@@ -218,7 +209,7 @@ pytest --cov=app --cov-report=html
 Edit `backend/.env` to configure:
 - OpenAI API key
 - Server host and port
-- OCR settings
+- Scan interval (`SCAN_INTERVAL_SECONDS`)
 - Logging level
 
 ## 🔒 Security Notes
@@ -237,5 +228,7 @@ Edit `backend/.env` to configure:
 
 ---
 
-**Note**: This is Phase 1 implementation. Full functionality will be available after completing all phases.
+**Note**: This project now uses a Flutter desktop overlay and continuous,
+LLM-only phishing detection. The old Electron/React frontend and OCR
+fallback have been removed.
 

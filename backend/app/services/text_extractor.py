@@ -96,160 +96,217 @@ def extract_screen_text() -> ScreenTextExtractionResult:
 
         windows: List[WindowText] = []
 
-        # Get the currently active (foreground) window
-        hwnd = win32gui.GetForegroundWindow()
-        if not hwnd:
-            logger.warning("No foreground window detected for screen text extraction")
-        else:
-            # Only consider visible, non‑minimized windows with a title
+        # Get all visible windows, not just foreground
+        # This helps capture browser content even when Electron widget is on top
+        def enum_windows_callback(hwnd, windows_list):
             if win32gui.IsWindowVisible(hwnd) and not win32gui.IsIconic(hwnd):
                 title = win32gui.GetWindowText(hwnd) or ""
-                try:
-                    element = automation.ElementFromHandle(hwnd)
+                # Skip Electron widget windows and system windows
+                if title and "Phishing Detector Widget" not in title:
+                    windows_list.append((hwnd, title))
+            return True
+        
+        all_windows = []
+        try:
+            win32gui.EnumWindows(enum_windows_callback, all_windows)
+        except Exception as e:
+            logger.warning(f"Failed to enumerate windows: {e}")
+            # Fallback to foreground window
+            hwnd = win32gui.GetForegroundWindow()
+            if hwnd:
+                title = win32gui.GetWindowText(hwnd) or ""
+                if title and "Phishing Detector Widget" not in title:
+                    all_windows = [(hwnd, title)]
+        
+        # Process all windows, prioritizing browser windows
+        browser_keywords = ["chrome", "edge", "firefox", "opera", "brave", "browser"]
+        browser_windows = []
+        other_windows = []
+        
+        # Separate browser windows from others
+        for hwnd, title in all_windows:
+            title_lower = title.lower()
+            if any(keyword in title_lower for keyword in browser_keywords):
+                browser_windows.append((hwnd, title))
+            else:
+                other_windows.append((hwnd, title))
+        
+        # Prioritize browser windows, then add others
+        windows_to_process = browser_windows + other_windows
+        
+        # Limit to first 1 window for faster processing (prioritize browsers)
+        # This significantly speeds up text extraction
+        windows_to_process = windows_to_process[:1]
+        
+        # If no windows found, try foreground window as fallback
+        if not windows_to_process:
+            hwnd = win32gui.GetForegroundWindow()
+            if hwnd:
+                title = win32gui.GetWindowText(hwnd) or ""
+                if title and "Phishing Detector Widget" not in title:
+                    windows_to_process = [(hwnd, title)]
+        
+        logger.info(f"Processing {len(windows_to_process)} window(s) for text extraction")
+        
+        for hwnd, title in windows_to_process:
+            try:
+                element = automation.ElementFromHandle(hwnd)
 
-                    texts: List[str] = []
+                texts: List[str] = []
 
-                    def traverse(el, depth=0):
-                        # Limit depth to avoid infinite recursion
-                        if depth > 20:
-                            return
-                        
+                def traverse(el, depth=0):
+                    # Limit depth to avoid infinite recursion and speed up extraction
+                    # Reduced from 20 to 15 for faster processing
+                    if depth > 15:
+                        return
+                    
+                    # Early exit if we've collected enough text (performance optimization)
+                    if len(texts) > 500:  # Stop if we have 500+ text fragments
+                        return
+                    
+                    try:
+                        # Get element name (labels, headings, etc.)
                         try:
-                            # Get element name (labels, headings, etc.)
-                            try:
-                                name = el.CurrentName
-                                if name and name.strip():
-                                    texts.append(name.strip())
-                            except Exception:
-                                pass
-                            
-                            # Get element value (text content, input values, etc.)
-                            try:
-                                value = el.GetCurrentPropertyValue(
-                                    UIAutomationClient.UIA_ValueValuePropertyId
-                                )
-                                if value and str(value).strip():
-                                    texts.append(str(value).strip())
-                            except Exception:
-                                pass
-                            
-                            # Get HelpText property (often contains additional text)
-                            try:
-                                help_text = el.GetCurrentPropertyValue(
-                                    UIAutomationClient.UIA_HelpTextPropertyId
-                                )
-                                if help_text and str(help_text).strip():
-                                    texts.append(str(help_text).strip())
-                            except Exception:
-                                pass
-                            
-                            # Try to get text pattern for text elements (most important for browsers)
-                            try:
-                                text_pattern = el.GetCurrentPattern(
-                                    UIAutomationClient.UIA_TextPatternId
-                                )
-                                if text_pattern:
-                                    # Get document range
-                                    try:
-                                        doc_range = text_pattern.DocumentRange
-                                        if doc_range:
-                                            full_text = doc_range.GetText(-1)
-                                            if full_text and full_text.strip():
-                                                texts.append(full_text.strip())
-                                    except Exception:
-                                        pass
-                                    
-                                    # Also try visible ranges
-                                    try:
-                                        visible_ranges = text_pattern.GetVisibleRanges()
-                                        if visible_ranges and visible_ranges.Length > 0:
-                                            for i in range(visible_ranges.Length):
-                                                try:
-                                                    text = visible_ranges.GetElement(i).GetText(-1)
-                                                    if text and text.strip():
-                                                        texts.append(text.strip())
-                                                except Exception:
-                                                    pass
-                                    except Exception:
-                                        pass
-                            except Exception:
-                                pass
-                            
-                            # Get item status (sometimes contains text)
-                            try:
-                                item_status = el.GetCurrentPropertyValue(
-                                    UIAutomationClient.UIA_ItemStatusPropertyId
-                                )
-                                if item_status and str(item_status).strip():
-                                    texts.append(str(item_status).strip())
-                            except Exception:
-                                pass
-                                
+                            name = el.CurrentName
+                            if name and name.strip():
+                                texts.append(name.strip())
                         except Exception:
                             pass
-
-                        # Use Descendants scope to get ALL elements, not just direct children
-                        # This is crucial for browsers which have deep DOM structures
+                        
+                        # Get element value (text content, input values, etc.)
                         try:
-                            descendants = el.FindAll(
-                                UIAutomationClient.TreeScope_Descendants,
+                            value = el.GetCurrentPropertyValue(
+                                UIAutomationClient.UIA_ValueValuePropertyId
+                            )
+                            if value and str(value).strip():
+                                texts.append(str(value).strip())
+                        except Exception:
+                            pass
+                        
+                        # Get HelpText property (often contains additional text)
+                        try:
+                            help_text = el.GetCurrentPropertyValue(
+                                UIAutomationClient.UIA_HelpTextPropertyId
+                            )
+                            if help_text and str(help_text).strip():
+                                texts.append(str(help_text).strip())
+                        except Exception:
+                            pass
+                        
+                        # Try to get text pattern for text elements (most important for browsers)
+                        try:
+                            text_pattern = el.GetCurrentPattern(
+                                UIAutomationClient.UIA_TextPatternId
+                            )
+                            if text_pattern:
+                                # Get document range
+                                try:
+                                    doc_range = text_pattern.DocumentRange
+                                    if doc_range:
+                                        full_text = doc_range.GetText(-1)
+                                        if full_text and full_text.strip():
+                                            texts.append(full_text.strip())
+                                except Exception:
+                                    pass
+                                
+                                # Also try visible ranges
+                                try:
+                                    visible_ranges = text_pattern.GetVisibleRanges()
+                                    if visible_ranges and visible_ranges.Length > 0:
+                                        for i in range(visible_ranges.Length):
+                                            try:
+                                                text = visible_ranges.GetElement(i).GetText(-1)
+                                                if text and text.strip():
+                                                    texts.append(text.strip())
+                                            except Exception:
+                                                pass
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                        
+                        # Get item status (sometimes contains text)
+                        try:
+                            item_status = el.GetCurrentPropertyValue(
+                                UIAutomationClient.UIA_ItemStatusPropertyId
+                            )
+                            if item_status and str(item_status).strip():
+                                texts.append(str(item_status).strip())
+                        except Exception:
+                            pass
+                            
+                    except Exception:
+                        pass
+
+                    # Use Descendants scope to get ALL elements, not just direct children
+                    # This is crucial for browsers which have deep DOM structures
+                    try:
+                        descendants = el.FindAll(
+                            UIAutomationClient.TreeScope_Descendants,
+                            automation.CreateTrueCondition(),
+                        )
+                        if descendants and descendants.Length > 0:
+                            for i in range(descendants.Length):
+                                try:
+                                    child = descendants.GetElement(i)
+                                    traverse(child, depth + 1)
+                                except Exception:
+                                    continue
+                    except Exception:
+                        # Fallback to children if descendants fails
+                        try:
+                            children = el.FindAll(
+                                UIAutomationClient.TreeScope_Children,
                                 automation.CreateTrueCondition(),
                             )
-                            if descendants and descendants.Length > 0:
-                                for i in range(descendants.Length):
+                            if children and children.Length > 0:
+                                for i in range(children.Length):
                                     try:
-                                        child = descendants.GetElement(i)
+                                        child = children.GetElement(i)
                                         traverse(child, depth + 1)
                                     except Exception:
                                         continue
                         except Exception:
-                            # Fallback to children if descendants fails
-                            try:
-                                children = el.FindAll(
-                                    UIAutomationClient.TreeScope_Children,
-                                    automation.CreateTrueCondition(),
-                                )
-                                if children and children.Length > 0:
-                                    for i in range(children.Length):
-                                        try:
-                                            child = children.GetElement(i)
-                                            traverse(child, depth + 1)
-                                        except Exception:
-                                            continue
-                            except Exception:
-                                return
+                            return
 
-                    traverse(element, depth=0)
+                traverse(element, depth=0)
 
-                    combined_text_lines = []
-                    seen = set()
-                    for t in texts:
-                        t_norm = t.strip()
-                        # Only add non-empty text that we haven't seen
-                        # Also filter out very short fragments that are likely UI noise
-                        if t_norm and len(t_norm) > 1 and t_norm not in seen:
-                            seen.add(t_norm)
-                            combined_text_lines.append(t_norm)
+                combined_text_lines = []
+                seen = set()
+                for t in texts:
+                    t_norm = t.strip()
+                    # Only add non-empty text that we haven't seen
+                    # Filter out very short fragments (but allow URLs and important short text)
+                    # Allow text of length 1+ if it contains URLs or important patterns
+                    is_url = "http://" in t_norm.lower() or "https://" in t_norm.lower()
+                    is_important = any(keyword in t_norm.lower() for keyword in [
+                        "verify", "suspended", "blocked", "urgent", "expired", "kyc"
+                    ])
                     
-                    logger.debug(f"Extracted {len(combined_text_lines)} unique text fragments from window '{title}'")
+                    if t_norm and (len(t_norm) > 2 or is_url or is_important) and t_norm not in seen:
+                        seen.add(t_norm)
+                        combined_text_lines.append(t_norm)
+                
+                logger.debug(f"Extracted {len(combined_text_lines)} unique text fragments from window '{title}'")
 
-                    window_text = "\n".join(combined_text_lines)
+                window_text = "\n".join(combined_text_lines)
 
-                    full_text_parts = []
-                    if title.strip():
-                        full_text_parts.append(f"[Window: {title.strip()}]")
-                    if window_text.strip():
-                        full_text_parts.append(window_text.strip())
+                full_text_parts = []
+                if title.strip():
+                    full_text_parts.append(f"[Window: {title.strip()}]")
+                if window_text.strip():
+                    full_text_parts.append(window_text.strip())
 
-                    if full_text_parts:
-                        windows.append(
-                            WindowText(
-                                title=title.strip(),
-                                text="\n".join(full_text_parts),
-                            )
+                if full_text_parts:
+                    windows.append(
+                        WindowText(
+                            title=title.strip(),
+                            text="\n".join(full_text_parts),
                         )
-                except Exception as exc:  # pragma: no cover - defensive
-                    logger.debug(f"UIA extraction failed for foreground window '{title}': {exc}")
+                    )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug(f"UIA extraction failed for window '{title}': {exc}")
+                continue  # Try next window
 
         if not windows:
             logger.warning(

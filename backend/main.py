@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.logger import logger
 from app.api.routes import router
+from app.services.scanner import start_background_scanner
 
 # Initialize FastAPI application
 app = FastAPI(
@@ -44,6 +45,13 @@ async def startup_event():
         logger.info("OpenAI API key configured")
     else:
         logger.warning("OpenAI API key not configured - AI analysis will not work")
+
+    # Start continuous background screen scanning
+    try:
+        start_background_scanner()
+        logger.info("Continuous background scanner started")
+    except Exception as exc:
+        logger.error(f"Failed to start background scanner: {exc}", exc_info=True)
 
 
 @app.on_event("shutdown")

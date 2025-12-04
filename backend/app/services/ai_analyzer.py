@@ -31,63 +31,73 @@ from app.services.text_processing import ProcessedText
 def _build_system_prompt() -> str:
     """System prompt describing the task and expected JSON schema."""
     return (
-        "You are an expert security analyst specializing in phishing detection. "
-        "Analyze the provided text for phishing indicators and respond ONLY with "
-        "a strict JSON object matching this exact schema:\n\n"
+        "You are a cybersecurity expert specializing in phishing detection. "
+        "Your CRITICAL mission: Identify and flag ALL phishing attempts to protect users.\n\n"
+        "Respond ONLY with valid JSON matching this exact schema:\n"
         "{\n"
         '  "is_phishing": true or false,\n'
         '  "risk_level": "low" | "medium" | "high" | "critical",\n'
-        '  "reason": "concise explanation of your assessment",\n'
-        '  "suspicious_elements": [\n'
-        '    {"type": "url" | "urgency" | "threat" | "credential_request" | "other",\n'
-        '     "value": "specific suspicious element found",\n'
-        '     "confidence": number between 0 and 1}\n'
-        "  ],\n"
+        '  "reason": "detailed explanation",\n'
+        '  "suspicious_elements": [{"type": "url|urgency|threat|credential_request|other", "value": "...", "confidence": 0.0-1.0}],\n'
         '  "recommended_action": "ignore" | "verify" | "report" | "delete" | "block"\n'
         "}\n\n"
-        "Detection Guidelines:\n"
-        "- Phishing indicators: urgent language, threats, suspicious URLs, requests for credentials, "
-        "prize scams, account suspension warnings, unusual domains, typosquatting\n"
-        "- Safe indicators: normal communication, legitimate domains, no urgency, no credential requests\n"
-        "- IMPORTANT: Ignore localhost (127.0.0.1, localhost) and development URLs - these are NOT phishing\n"
-        "- Be accurate: Only mark as phishing if there are clear indicators\n"
-        "- Risk levels: critical (obvious scam), high (strong indicators), medium (some concerns), low (minimal risk)\n\n"
-        "Response Rules:\n"
-        "- Do NOT include any extra keys beyond those specified.\n"
-        "- Do NOT include comments or explanations outside the JSON.\n"
-        "- Keep JSON valid and parseable.\n"
-        "- Be precise and conservative in your assessment.\n"
+        "PHISHING = TRUE if text contains ANY of these:\n"
+        "✓ Urgent/threatening language (urgent, immediately, within 24 hours, act now, account suspended/blocked/closed, expired, locked)\n"
+        "✓ Suspicious URLs (http:// not https://, unusual domains, verify-/secure-/update-/login- subdomains, typosquatting)\n"
+        "✓ Credential requests (verify account/details, update information, complete verification, update KYC)\n"
+        "✓ Prize/scam language (congratulations, you've won, claim prize)\n"
+        "✓ Suspicious activity claims (unusual activity, unauthorized access)\n\n"
+        "CRITICAL: Analyze the ACTUAL CONTENT, not disclaimers. If text says 'fake phishing example' but contains phishing patterns, STILL MARK AS PHISHING.\n"
+        "The presence of phishing indicators makes it phishing, regardless of labels like 'fake', 'example', or 'test'.\n\n"
+        "SAFE = FALSE only if: Normal communication, legitimate https:// domains, no urgency/threats/credential requests.\n\n"
+        "IMPORTANT: Ignore localhost/127.0.0.1 URLs. When uncertain, flag as phishing to protect users.\n"
+        "Risk: critical (obvious scam), high (threats+suspicious URLs), medium (some indicators), low (minimal but suspicious)."
     )
 
 
 def _build_user_prompt(processed: ProcessedText) -> str:
     """Construct the user prompt given processed text."""
+    # Put the actual text FIRST to give it maximum importance
+    text_content = processed.cleaned or processed.original or ""
+    
+    # Truncate text if too long to speed up analysis
+    max_length = settings.OPENAI_MAX_INPUT_LENGTH
+    if len(text_content) > max_length:
+        logger.warning(
+            f"[AI] Input text too long ({len(text_content)} chars), truncating to {max_length} chars for faster analysis"
+        )
+        # Try to truncate at a word boundary near the limit
+        truncated = text_content[:max_length]
+        last_space = truncated.rfind(' ')
+        if last_space > max_length * 0.9:  # If we find a space in the last 10%, use it
+            text_content = truncated[:last_space] + "\n[... text truncated for performance ...]"
+        else:
+            text_content = truncated + "\n[... text truncated for performance ...]"
+    
+    # Build a concise, focused prompt
     parts = [
-        "You are analyzing text content for phishing indicators. Consider:",
-        "- Urgent language and threats",
-        "- Suspicious URLs (especially HTTP, unusual domains, typosquatting)",
-        "- Requests for personal information or credentials",
-        "- Unusual sender addresses or domains",
-        "- Prize/winning scams",
-        "- Account suspension threats",
-        "",
-        "IMPORTANT: Ignore localhost URLs (127.0.0.1, localhost) and development URLs as they are not phishing.",
-        "",
         "TEXT TO ANALYZE:",
-        processed.cleaned or processed.original or "",
+        text_content,
     ]
+    
+    # Add URLs and emails as context after the main text
     if processed.urls:
-        parts.append("")
-        parts.append("URLs detected in the text:")
-        for url in processed.urls:
-            # Filter out localhost URLs from the list shown to AI
-            if not any(safe in url.lower() for safe in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
-                parts.append(f"- {url}")
+        non_localhost_urls = [
+            url for url in processed.urls 
+            if not any(safe in url.lower() for safe in ["localhost", "127.0.0.1", "0.0.0.0", "::1"])
+        ]
+        if non_localhost_urls:
+            parts.append("")
+            parts.append("URLs found:")
+            for url in non_localhost_urls:
+                parts.append(f"  - {url}")
+    
     if processed.emails:
         parts.append("")
-        parts.append("Email addresses detected:")
+        parts.append("Email addresses found:")
         for email in processed.emails:
-            parts.append(f"- {email}")
+            parts.append(f"  - {email}")
+    
     return "\n".join(parts).strip()
 
 
@@ -108,17 +118,38 @@ def analyze_with_llm(processed: ProcessedText) -> AnalyzeResponse:
     except Exception as exc:  # pragma: no cover - defensive
         raise RuntimeError(f"OpenAI SDK not available: {exc}") from exc
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    # Initialize OpenAI client with timeout for faster failure detection
+    client = OpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        timeout=settings.OPENAI_TIMEOUT,
+    )
 
     system_prompt = _build_system_prompt()
     user_prompt = _build_user_prompt(processed)
 
     text_length = len(processed.cleaned or processed.original)
+    
+    # Log what we're sending to OpenAI for debugging
     logger.info(
-        f"🤖 Calling OpenAI API for phishing analysis "
+        f"[AI] Calling OpenAI API for phishing analysis "
         f"(model={settings.OPENAI_MODEL}, text_len={text_length}, "
-        f"urls={len(processed.urls)}, emails={len(processed.emails)})"
+        f"urls={len(processed.urls)}, emails={len(processed.emails)}, "
+        f"temperature={settings.OPENAI_TEMPERATURE})"
     )
+    
+    # Log the actual text being analyzed (first 500 chars for debugging)
+    logger.debug(f"[AI] Text being analyzed (first 500 chars):\n{user_prompt[:500]}")
+    if len(user_prompt) > 500:
+        logger.debug(f"[AI] ... (truncated, total {len(user_prompt)} chars)")
+    
+    # Log URLs if present
+    if processed.urls:
+        non_localhost_urls = [
+            url for url in processed.urls 
+            if not any(safe in url.lower() for safe in ["localhost", "127.0.0.1", "0.0.0.0", "::1"])
+        ]
+        if non_localhost_urls:
+            logger.info(f"[AI] URLs being analyzed: {non_localhost_urls}")
 
     try:
         completion = client.chat.completions.create(
@@ -133,8 +164,16 @@ def analyze_with_llm(processed: ProcessedText) -> AnalyzeResponse:
         )
 
         content = completion.choices[0].message.content or "{}"
-        logger.debug(f"OpenAI raw response: {content[:500]}")  # Log first 500 chars
-        data: Dict[str, Any] = json.loads(content)
+        logger.info(f"[AI] OpenAI raw response (first 500 chars): {content[:500]}")
+        if len(content) > 500:
+            logger.debug(f"[AI] Full OpenAI response: {content}")
+        
+        try:
+            data: Dict[str, Any] = json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Failed to parse OpenAI JSON response: {e}")
+            logger.error(f"❌ Raw response was: {content}")
+            raise RuntimeError(f"OpenAI returned invalid JSON: {e}") from e
 
         # Map JSON fields to AnalyzeResponse
         is_phishing = bool(data.get("is_phishing", False))
@@ -143,7 +182,7 @@ def analyze_with_llm(processed: ProcessedText) -> AnalyzeResponse:
         recommended_action_str = str(data.get("recommended_action", "verify")).lower()
         
         logger.info(
-            f"✅ OpenAI decision: is_phishing={is_phishing}, "
+            f"[AI] OpenAI decision: is_phishing={is_phishing}, "
             f"risk_level={risk_level_str}, reason={reason[:100]}"
         )
 

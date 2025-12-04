@@ -14,12 +14,14 @@ from app.models.schemas import (
     RiskLevel,
     RecommendedAction,
     ScreenScanRequest,
+    LatestScanResponse,
 )
 from app.core.config import settings
 from app.core.logger import logger
 from app.services.text_processing import process_text_for_analysis
 from app.services.ai_analyzer import analyze_with_llm
 from app.services.text_extractor import extract_screen_text, ScreenTextExtractionResult
+from app.services.scanner import get_latest_scan_state
 
 router = APIRouter(prefix=settings.API_PREFIX, tags=["phishing-detector"])
 
@@ -50,11 +52,10 @@ async def get_status():
     """
     logger.debug("Status check requested")
     
-    # Check service availability (will be implemented in later phases)
     services_status = {
-        "screenshot": "ready",  # Will be implemented in Phase 2
-        "ocr": "ready",  # Will be implemented in Phase 3
-        "ai_analyzer": "ready" if settings.OPENAI_API_KEY else "not_configured"  # Will be implemented in Phase 4
+        "screen_text_extractor": "ready",
+        "ai_analyzer": "ready" if settings.OPENAI_API_KEY else "not_configured",
+        "continuous_scanner": "running",
     }
     
     # Determine overall status
@@ -70,130 +71,71 @@ async def get_status():
     )
 
 
+@router.get(
+    "/latest-scan",
+    response_model=LatestScanResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def latest_scan():
+    """
+    Get the most recent result from the continuous background scanner.
+
+    This endpoint is intended for the floating Flutter desktop client to
+    poll periodically (e.g. every few seconds) and show an alert when
+    phishing content is detected, without requiring any user click.
+    """
+    state = get_latest_scan_state()
+    return LatestScanResponse(
+        last_scan_at=state["last_scan_at"],
+        has_result=state["has_result"],
+        error=state["error"],
+        result=state["result"],
+    )
+
+
 def _run_analysis(processed_text, include_urls: bool) -> AnalyzeResponse:
     """
-    Internal helper that runs AI + fallback logic on processed text.
+    Internal helper that runs OpenAI API analysis on processed text.
+    OpenAI API is the ONLY detection method - no fallbacks.
     """
-
-    def rule_based_fallback() -> AnalyzeResponse:
-        text_lower = processed_text.cleaned.lower()
-        
-        # Phishing indicators - more comprehensive list
-        phishing_keywords = [
-            "click here", "click now", "verify now", "verify immediately",
-            "urgent", "urgently", "immediate action", "act now",
-            "blocked", "deactivated", "suspended", "expired", "locked",
-            "verify your account", "verify your identity", "verify payment",
-            "update your account", "update payment", "update information",
-            "your account will be", "account will be closed", "lose access",
-            "last chance", "expires in", "offer expires",
-            "congratulations", "you've won", "claim your prize",
-            "security alert", "suspicious activity", "unauthorized access",
-        ]
-        
-        # Suspicious URL patterns (exclude localhost and common dev domains)
-        safe_domains = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
-        suspicious_url_patterns = [
-            ".xyz", ".tk", ".ml", ".ga", ".cf", ".gq",  # Suspicious TLDs
-            "verify-", "secure-", "update-", "login-", "account-",  # Suspicious subdomains
-        ]
-        
-        # Check for phishing keywords
-        keyword_matches = [kw for kw in phishing_keywords if kw in text_lower]
-        
-        # Check for suspicious URLs (exclude localhost/dev URLs)
-        suspicious_urls = []
-        for url in processed_text.urls:
-            url_lower = url.lower()
-            # Skip localhost and dev URLs
-            if any(safe in url_lower for safe in safe_domains):
-                continue
-            # Check for HTTP (not HTTPS) - but only if it's not localhost
-            if url_lower.startswith("http://") and not any(safe in url_lower for safe in safe_domains):
-                suspicious_urls.append(url)
-            # Check for suspicious patterns
-            elif any(pattern in url_lower for pattern in suspicious_url_patterns):
-                suspicious_urls.append(url)
-        
-        # Determine if phishing
-        is_phish = len(keyword_matches) > 0 or len(suspicious_urls) > 0
-        
-        if is_phish:
-            # Higher risk if both keywords and suspicious URLs
-            if len(keyword_matches) >= 2 and len(suspicious_urls) > 0:
-                risk_level_val = RiskLevel.CRITICAL
-            elif len(suspicious_urls) > 0:
-                risk_level_val = RiskLevel.HIGH
-            elif len(keyword_matches) >= 2:
-                risk_level_val = RiskLevel.HIGH
-            else:
-                risk_level_val = RiskLevel.MEDIUM
-            
-            status_val = PhishingStatus.PHISHING
-            recommended_action_val = RecommendedAction.BLOCK if risk_level_val in [RiskLevel.HIGH, RiskLevel.CRITICAL] else RecommendedAction.IGNORE
-            
-            reasons = []
-            if keyword_matches:
-                reasons.append(f"Suspicious keywords detected: {', '.join(keyword_matches[:3])}")
-            if suspicious_urls:
-                reasons.append(f"Suspicious URLs found: {len(suspicious_urls)}")
-            reason_val = ". ".join(reasons) if reasons else "Phishing indicators detected."
-            confidence_val = 0.85
-        else:
-            status_val = PhishingStatus.SAFE
-            risk_level_val = RiskLevel.LOW
-            recommended_action_val = RecommendedAction.VERIFY
-            reason_val = (
-                "No obvious phishing indicators detected. However, "
-                "always verify suspicious messages independently."
-            )
-            confidence_val = 0.6
-
-        # Filter out localhost URLs from extracted URLs
-        filtered_urls = []
-        if include_urls and processed_text.urls:
-            safe_domains = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
-            filtered_urls = [
-                url for url in processed_text.urls 
-                if not any(safe in url.lower() for safe in safe_domains)
-            ]
-        
-        return AnalyzeResponse(
-            is_phishing=is_phish,
-            status=status_val,
-            risk_level=risk_level_val,
-            confidence=confidence_val,
-            reason=reason_val,
-            suspicious_elements=[],
-            recommended_action=recommended_action_val,
-            extracted_text=processed_text.cleaned or processed_text.original,
-            extracted_urls=filtered_urls,
+    # Check if OpenAI API key is configured
+    if not settings.OPENAI_API_KEY:
+        logger.error("OPENAI_API_KEY is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OpenAI API key is not configured. Please set OPENAI_API_KEY in your environment variables.",
         )
 
-    # PRIMARY: Use OpenAI LLM if configured (this is the main decision maker)
-    if settings.OPENAI_API_KEY:
-        logger.info("Using OpenAI API for phishing detection (primary method)")
-        try:
-            ai_response = analyze_with_llm(processed_text)
-            logger.info(
-                "✅ OpenAI analysis completed: "
-                f"is_phishing={ai_response.is_phishing}, "
-                f"risk_level={ai_response.risk_level}, "
-                f"status={ai_response.status}, "
-                f"reason={ai_response.reason[:100] if ai_response.reason else 'N/A'}"
-            )
-            if not include_urls:
-                ai_response.extracted_urls = []
-            return ai_response
-        except Exception as ai_exc:  # pragma: no cover - network/API issues
-            logger.error(
-                f"❌ OpenAI API failed, falling back to rule-based detection: {ai_exc}"
-            )
-            logger.warning("Using rule-based fallback (less accurate than OpenAI)")
-            return rule_based_fallback()
-    else:
-        logger.warning("⚠️ OPENAI_API_KEY not configured; using rule-based analysis (less accurate)")
-        return rule_based_fallback()
+    # Use OpenAI LLM as the ONLY detection method
+    logger.info("Using OpenAI API for phishing detection (ONLY method)")
+    try:
+        ai_response = analyze_with_llm(processed_text)
+        logger.info(
+            "[AI] OpenAI analysis completed: "
+            f"is_phishing={ai_response.is_phishing}, "
+            f"risk_level={ai_response.risk_level}, "
+            f"status={ai_response.status}, "
+            f"reason={ai_response.reason[:100] if ai_response.reason else 'N/A'}"
+        )
+        if not include_urls:
+            ai_response.extracted_urls = []
+        return ai_response
+    except Exception as ai_exc:
+        error_msg = str(ai_exc)
+        logger.error(f"[ERROR] OpenAI API failed: {ai_exc}", exc_info=True)
+        
+        # Provide user-friendly error messages
+        if "429" in error_msg or "quota" in error_msg.lower() or "insufficient_quota" in error_msg.lower():
+            detail = "OpenAI API quota exceeded. Please check your OpenAI account billing and quota limits."
+        elif "401" in error_msg or "unauthorized" in error_msg.lower():
+            detail = "OpenAI API key is invalid or expired. Please check your OPENAI_API_KEY in .env file."
+        else:
+            detail = f"OpenAI API analysis failed: {error_msg}. Please check your API key and network connection."
+        
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=detail,
+        )
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, status_code=status.HTTP_200_OK)
@@ -222,15 +164,18 @@ async def scan_screen(request: ScreenScanRequest):
     extraction: ScreenTextExtractionResult = extract_screen_text()
 
     # Log extracted text for debugging
-    logger.info(f"📄 Extracted text length: {len(extraction.raw_text)} characters")
-    logger.info(f"📄 Extraction method: {extraction.method}, windows: {len(extraction.windows)}")
+    logger.info(f"[TEXT] Extracted text length: {len(extraction.raw_text)} characters")
+    logger.info(f"[TEXT] Extraction method: {extraction.method}, windows: {len(extraction.windows)}")
     if extraction.raw_text:
         preview = extraction.raw_text[:1000]  # Show first 1000 chars
-        logger.info(f"📄 Extracted text preview:\n{preview}")
+        # Sanitize preview to avoid Unicode encoding errors
+        from app.core.logger import sanitize_text_for_logging
+        safe_preview = sanitize_text_for_logging(preview)
+        logger.info(f"[TEXT] Extracted text preview:\n{safe_preview}")
         if len(extraction.raw_text) > 1000:
-            logger.info(f"📄 ... (truncated, total {len(extraction.raw_text)} chars)")
+            logger.info(f"[TEXT] ... (truncated, total {len(extraction.raw_text)} chars)")
     else:
-        logger.warning("⚠️ No text extracted from screen!")
+        logger.warning("[WARN] No text extracted from screen!")
 
     if not extraction.raw_text.strip():
         logger.error("Screen text extraction returned no text")
@@ -243,6 +188,16 @@ async def scan_screen(request: ScreenScanRequest):
     logger.info(f"Processed text length: {len(processed.cleaned)}, URLs found: {len(processed.urls)}")
     if processed.urls:
         logger.info(f"URLs extracted: {processed.urls}")
+    
+    # Log a sample of the cleaned text to verify quality
+    if processed.cleaned:
+        sample_text = processed.cleaned[:500] if len(processed.cleaned) > 500 else processed.cleaned
+        # Sanitize sample to avoid Unicode encoding errors
+        from app.core.logger import sanitize_text_for_logging
+        safe_sample = sanitize_text_for_logging(sample_text)
+        logger.info(f"[TEXT] Cleaned text sample (first 500 chars):\n{safe_sample}")
+        if len(processed.cleaned) > 500:
+            logger.info(f"[TEXT] ... (truncated, total {len(processed.cleaned)} chars)")
 
     try:
         response = _run_analysis(processed, include_urls=request.include_urls)
