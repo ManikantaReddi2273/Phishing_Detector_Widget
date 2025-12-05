@@ -2,7 +2,7 @@
 Text processing utilities for cleaned AI-ready text.
 
 Responsibilities:
-- Clean raw text (from UI Automation or OCR)
+- Clean raw text (from Windows UI Automation)
 - Extract URLs and email addresses
 - Provide helpers that keep business logic out of routes
 """

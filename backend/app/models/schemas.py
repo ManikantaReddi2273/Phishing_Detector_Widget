@@ -66,7 +66,7 @@ class AnalyzeResponse(BaseModel):
     reason: str = Field(..., description="Detailed explanation of the detection result")
     suspicious_elements: List[SuspiciousElement] = Field(default_factory=list, description="List of suspicious elements found")
     recommended_action: RecommendedAction = Field(..., description="Recommended action for the user")
-    extracted_text: Optional[str] = Field(None, description="Text that was analyzed (if from OCR)")
+    extracted_text: Optional[str] = Field(None, description="Text that was analyzed (from Windows UI Automation)")
     extracted_urls: List[str] = Field(default_factory=list, description="URLs found in the text")
     
     class Config:

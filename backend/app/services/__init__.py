@@ -1,5 +1,5 @@
 """
-Service modules for screen text extraction, OCR fallback, text processing,
-and AI analysis (Phases 2-4).
+Service modules for screen text extraction, text processing,
+and AI analysis (LLM-only phishing detection).
 """
 
