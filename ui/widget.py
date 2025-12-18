@@ -2,7 +2,8 @@ from PyQt5.QtWidgets import (
     QWidget, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout
 )
-from PyQt5.QtCore import Qt, pyqtSlot
+from PyQt5.QtCore import Qt, pyqtSlot, QRect, QPoint
+from PyQt5.QtGui import QPainter, QColor, QRegion
 import time
 
 
@@ -16,6 +17,12 @@ class FloatingWidget(QWidget):
         self.last_update_time = 0
 
         self.details_label = None
+        self.current_risk = "low"
+
+        # Dragging state
+        self._drag_active = False
+        self._drag_offset = None
+
         self.init_ui()
 
     def init_ui(self):
@@ -25,41 +32,117 @@ class FloatingWidget(QWidget):
             Qt.FramelessWindowHint |
             Qt.Tool
         )
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        # -------- Status --------
+        # ---------- Status ----------
         self.status_label = QLabel("🟢 Safe")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet("font-weight: bold;")
 
-        # -------- Buttons --------
+        # ---------- Buttons ----------
         self.pause_btn = QPushButton("Pause")
         self.pause_btn.clicked.connect(self.toggle_status)
 
         self.info_btn = QPushButton("ⓘ")
-        self.info_btn.setFixedSize(32, 28)
+        self.info_btn.setFixedSize(34, 34)
         self.info_btn.clicked.connect(self.toggle_details)
+        self.info_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: white;
+                border: 1px solid rgba(255,255,255,0.25);
+                border-radius: 17px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(255,255,255,0.08);
+            }
+        """)
 
         btn_row = QHBoxLayout()
         btn_row.addWidget(self.pause_btn)
         btn_row.addStretch()
         btn_row.addWidget(self.info_btn)
 
-        # -------- Layout --------
+        # ---------- Layout ----------
         layout = QVBoxLayout()
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
         layout.addWidget(self.status_label)
         layout.addLayout(btn_row)
 
         self.setLayout(layout)
 
-        # 🔑 IMPORTANT: height increased
-        self.setFixedSize(220, 120)
+        # 🔵 IMPORTANT: make widget square
+        self.setFixedSize(160, 160)
         self.move(50, 50)
 
+        # Apply circular mask
+        self.apply_circular_mask()
+
         self.apply_style("low", 0.0)
+
+    # -------------------------
+    # 🔵 Circular mask
+    # -------------------------
+    def apply_circular_mask(self):
+        radius = self.width()
+        region = QRegion(QRect(0, 0, radius, radius), QRegion.Ellipse)
+        self.setMask(region)
+
+    # -------------------------
+    # Drag support
+    # -------------------------
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            child = self.childAt(event.pos())
+            # don't start dragging when clicking on buttons or controls
+            if child and isinstance(child, QPushButton):
+                super().mousePressEvent(event)
+                return
+
+            self._drag_active = True
+            self._drag_offset = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if getattr(self, "_drag_active", False) and (event.buttons() & Qt.LeftButton):
+            try:
+                new_pos = event.globalPos() - self._drag_offset
+                self.move(new_pos)
+            except Exception:
+                pass
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if getattr(self, "_drag_active", False):
+            self._drag_active = False
+            self._drag_offset = None
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    # -------------------------
+    # 🎨 Paint background circle
+    # -------------------------
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        color_map = {
+            "low": QColor("#1b5e20"),
+            "medium": QColor("#f9a825"),
+            "high": QColor("#b71c1c"),
+            "scanning": QColor("#424242")
+        }
+
+        painter.setBrush(color_map.get(self.current_risk, QColor("#1b5e20")))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(self.rect())
 
     # -------------------------
     # Pause / Resume
@@ -68,7 +151,8 @@ class FloatingWidget(QWidget):
         if self.pause_btn.text() == "Pause":
             self.pause_btn.setText("Resume")
             self.status_label.setText("⏸ Paused")
-            self.setStyleSheet("background-color: #555; color: white;")
+            self.current_risk = "scanning"
+            self.update()
         else:
             self.pause_btn.setText("Pause")
             self.apply_style(self.last_risk, self.last_confidence)
@@ -80,7 +164,6 @@ class FloatingWidget(QWidget):
     def update_ui(self, risk_level, confidence, reasons):
         now = time.time()
 
-        # Anti-flicker
         if self.last_risk in ("high", "medium") and risk_level == "low":
             if now - self.last_update_time < 3:
                 return
@@ -96,21 +179,21 @@ class FloatingWidget(QWidget):
     # Visual styles
     # -------------------------
     def apply_style(self, risk_level, confidence):
+        self.current_risk = risk_level
+
         if risk_level == "scanning":
-            self.setStyleSheet("background-color: #424242; color: white;")
             self.status_label.setText("🔍 Scanning…")
 
         elif risk_level == "high":
-            self.setStyleSheet("background-color: #b71c1c; color: white;")
             self.status_label.setText(f"🔴 Phishing ({int(confidence * 100)}%)")
 
         elif risk_level == "medium":
-            self.setStyleSheet("background-color: #f9a825; color: black;")
             self.status_label.setText(f"🟡 Suspicious ({int(confidence * 100)}%)")
 
         else:
-            self.setStyleSheet("background-color: #1b5e20; color: white;")
             self.status_label.setText("🟢 Safe")
+
+        self.update()  # repaint circle
 
         if self.details_label:
             self.details_label.hide()
@@ -128,18 +211,20 @@ class FloatingWidget(QWidget):
 
         text = f"Risk: {self.last_risk.upper()}\n"
         text += f"Confidence: {int(self.last_confidence * 100)}%\n\n"
-
         for r in self.last_reasons:
             text += f"• {r}\n"
 
-        self.details_label = QLabel(text, self)
+        self.details_label = QLabel(text)
+        self.details_label.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint)
         self.details_label.setStyleSheet("""
             background-color: #111;
             color: white;
             padding: 8px;
-            border-radius: 6px;
+            border-radius: 8px;
             font-size: 11px;
         """)
-        self.details_label.move(0, self.height())
         self.details_label.adjustSize()
+
+        pos = self.mapToGlobal(self.rect().bottomLeft())
+        self.details_label.move(pos)
         self.details_label.show()

@@ -19,3 +19,5 @@ def get_active_window_info():
         "title": window_title,
         "process": process_name
     }
+
+
