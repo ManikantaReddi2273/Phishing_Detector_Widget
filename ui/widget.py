@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout
 )
 from PyQt5.QtCore import Qt, pyqtSlot, QRect, QPoint
-from PyQt5.QtGui import QPainter, QColor, QRegion
+from PyQt5.QtGui import QPainter, QColor, QRegion, QPen
 import time
 
 
@@ -22,6 +22,9 @@ class FloatingWidget(QWidget):
         # Dragging state
         self._drag_active = False
         self._drag_offset = None
+
+        # Hover state
+        self._hovered = False
 
         self.init_ui()
 
@@ -91,6 +94,27 @@ class FloatingWidget(QWidget):
         self.setMask(region)
 
     # -------------------------
+    # Hover support
+    # -------------------------
+    def enterEvent(self, event):
+        self._hovered = True
+        try:
+            self.setCursor(Qt.OpenHandCursor)
+        except Exception:
+            pass
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        try:
+            self.setCursor(Qt.ArrowCursor)
+        except Exception:
+            pass
+        self.update()
+        super().leaveEvent(event)
+
+    # -------------------------
     # Drag support
     # -------------------------
     def mousePressEvent(self, event):
@@ -143,6 +167,15 @@ class FloatingWidget(QWidget):
         painter.setBrush(color_map.get(self.current_risk, QColor("#1b5e20")))
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(self.rect())
+
+        # subtle hover highlight (ring)
+        if getattr(self, "_hovered", False):
+            pen = QPen(QColor(255, 255, 255, 60))
+            pen.setWidth(6)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            inset = 6
+            painter.drawEllipse(self.rect().adjusted(inset, inset, -inset, -inset))
 
     # -------------------------
     # Pause / Resume
